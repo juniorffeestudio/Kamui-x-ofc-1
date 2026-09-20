@@ -1,4 +1,4 @@
-# bot.py - Kamui Bot (Render/Discloud/Koyeb ready)
+# bot.py - Kamui Bot v2 (sem whitelist, responde direto)
 # pip install discord.py aiohttp flask
 
 import json
@@ -30,10 +30,10 @@ def save_json(p, data):
     with open(p, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
-config    = load_json(CONFIG_FILE, {"listen_channel": None, "owner_ids": []})
+config    = load_json(CONFIG_FILE, {"listen_channel": None})
 whitelist = load_json(WHITELIST_FILE, [])
 
-# ============ SERVIDOR WEB (health check pra hospedagem) ============
+# ============ SERVIDOR WEB (health check) ============
 app = Flask(__name__)
 
 @app.route('/')
@@ -77,9 +77,6 @@ async def ask_ai(prompt: str, history=None) -> str:
             data = await r.json()
             return data["choices"][0]["message"]["content"]
 
-def is_whitelisted(uid: int) -> bool:
-    return str(uid) in [str(x) for x in whitelist]
-
 # ============ EVENTOS ============
 @bot.event
 async def on_ready():
@@ -96,13 +93,10 @@ async def on_ready():
 async def ajuda(interaction: discord.Interaction):
     embed = discord.Embed(
         title="🎮 Kamui Bot",
-        description="IA no canal dedicado + comandos de admin.",
+        description="Fale direto no canal configurado — a IA responde sem precisar de comando.",
         color=0x8b5cf6
     )
     embed.add_field(name="/setchannel #canal", value="Define o canal de escuta da IA", inline=False)
-    embed.add_field(name="/addwhite @user", value="Adiciona à whitelist", inline=False)
-    embed.add_field(name="/delwhite @user", value="Remove da whitelist", inline=False)
-    embed.add_field(name="/listwhite", value="Lista a whitelist", inline=False)
     embed.add_field(name="/java <dúvida>", value="Ajuda com Java", inline=False)
     embed.add_field(name="/bash <dúvida>", value="Ajuda com Bash/Linux", inline=False)
     embed.add_field(name="/lua <dúvida>", value="Ajuda com Lua/Roblox", inline=False)
@@ -111,54 +105,25 @@ async def ajuda(interaction: discord.Interaction):
     embed.set_footer(text="Kamui x Hub — por testeeeeeeeepouraa_99391")
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
-# ============ ADMIN ============
+# ============ /setchannel (RESPOSTA RÁPIDA - evita timeout) ============
 @bot.tree.command(name="setchannel", description="Define o canal onde a IA responde")
 async def setchannel(interaction: discord.Interaction, canal: discord.TextChannel):
+    # Responder IMEDIATAMENTE para não dar timeout
     if not interaction.user.guild_permissions.administrator:
         return await interaction.response.send_message("❌ Sem permissão.", ephemeral=True)
+    
     config["listen_channel"] = canal.id
     save_json(CONFIG_FILE, config)
-    await interaction.response.send_message(f"✅ Canal de escuta: {canal.mention}")
+    await interaction.response.send_message(f"✅ Canal de escuta definido: {canal.mention}")
 
-@bot.tree.command(name="addwhite", description="Adiciona à whitelist")
-async def addwhite(interaction: discord.Interaction, usuario: discord.Member):
-    if not interaction.user.guild_permissions.administrator:
-        return await interaction.response.send_message("❌ Sem permissão.", ephemeral=True)
-    if str(usuario.id) in [str(x) for x in whitelist]:
-        return await interaction.response.send_message("⚠️ Já está na whitelist.", ephemeral=True)
-    whitelist.append(str(usuario.id))
-    save_json(WHITELIST_FILE, whitelist)
-    await interaction.response.send_message(f"✅ {usuario.mention} adicionado.")
-
-@bot.tree.command(name="delwhite", description="Remove da whitelist")
-async def delwhite(interaction: discord.Interaction, usuario: discord.Member):
-    if not interaction.user.guild_permissions.administrator:
-        return await interaction.response.send_message("❌ Sem permissão.", ephemeral=True)
-    if str(usuario.id) not in [str(x) for x in whitelist]:
-        return await interaction.response.send_message("⚠️ Não está na whitelist.", ephemeral=True)
-    whitelist[:] = [x for x in whitelist if str(x) != str(usuario.id)]
-    save_json(WHITELIST_FILE, whitelist)
-    await interaction.response.send_message(f"🗑️ {usuario.mention} removido.")
-
-@bot.tree.command(name="listwhite", description="Lista a whitelist")
-async def listwhite(interaction: discord.Interaction):
-    if not whitelist:
-        return await interaction.response.send_message("📭 Whitelist vazia.", ephemeral=True)
-    linhas = []
-    for uid in whitelist:
-        m = interaction.guild.get_member(int(uid))
-        linhas.append(f"• {m.mention if m else f'`{uid}`'}")
-    await interaction.response.send_message(
-        embed=discord.Embed(title="📋 Whitelist", description="\n".join(linhas), color=0x22c55e),
-        ephemeral=True
-    )
-
+# ============ /clear ============
 @bot.tree.command(name="clear", description="Apaga N mensagens")
 async def clear(interaction: discord.Interaction, quantidade: int = 10):
     if not interaction.user.guild_permissions.manage_messages:
         return await interaction.response.send_message("❌ Sem permissão.", ephemeral=True)
+    await interaction.response.defer(ephemeral=True)
     await interaction.channel.purge(limit=quantidade)
-    await interaction.response.send_message(f"🧹 {quantidade} mensagens apagadas.", ephemeral=True)
+    await interaction.followup.send(f"🧹 {quantidade} mensagens apagadas.", ephemeral=True)
 
 # ============ IA - Atalhos ============
 @bot.tree.command(name="java", description="Ajuda com Java")
@@ -181,20 +146,21 @@ async def hub_cmd(interaction: discord.Interaction, pedido: str):
     await interaction.response.defer()
     await interaction.followup.send((await ask_ai(f"Crie ou ajude com um hub Roblox: {pedido}"))[:1900])
 
-# ============ ESCUTA SEM PREFIXO ============
+# ============ ESCUTA SEM PREFIXO (sem whitelist) ============
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot:
         return
+    
+    # Só responde no canal configurado
     if config.get("listen_channel") and message.channel.id == config["listen_channel"]:
-        is_admin = message.author.guild_permissions.administrator
-        if is_whitelisted(message.author.id) or is_admin:
+        # Ignora se for comando (começar com / ou !)
+        if not message.content.startswith("/") and not message.content.startswith("!"):
             async with message.channel.typing():
                 resp = await ask_ai(message.content)
                 for i in range(0, len(resp), 1900):
                     await message.channel.send(resp[i:i+1900])
-        else:
-            await message.reply("🚫 Você não está na whitelist.")
+    
     await bot.process_commands(message)
 
 # ============ START ============
