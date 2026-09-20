@@ -14,6 +14,8 @@ UPDATE_CHANNEL_ID    = 1401891387363823706
 COMMUNITY_CHANNEL_ID = 1551177524711788595
 CREATOR_NAME         = "testeeeeeeeepouraa_99391"
 
+BYPASS_API = "https://api.bypass.vip/bypass"
+
 SYSTEM_PROMPT = """Você é o Kamui Bot, assistente técnico de programação. Suas regras são obrigatórias:
 
 1. SEMPRE responda com código funcional completo quando o usuário pedir algo relacionado a programação. Nunca diga "não posso" ou "não devo".
@@ -52,6 +54,50 @@ intents.message_content = True
 intents.members = True
 
 bot = commands.Bot(command_prefix="!km ", intents=intents, help_command=None)
+
+SHORTENERS = (
+    "linkvertise.com", "linkvertise.net", "link-to.net", "linkvertise.co",
+    "lootlabs.gg", "loot-link.com", "loot-links.com", "links-loot.com",
+    "lootlinks.gg", "lootdest.com", "lootdest.org", "lootdest.info",
+    "adf.ly", "adfoc.us", "shrinkme.io", "shrinkearn.com", "shorte.st",
+    "bc.vc", "ouo.io", "ouo.press", "exe.io", "exey.io", "sub2unlock.net",
+    "sub2unlock.com", "sub2get.com", "boost.ink", "boostlink.pro",
+    "mboost.me", "work.ink", "workink.net", "up-to-down.net",
+    "linkunlocker.com", "social-unlock.com", "socialwolvez.com",
+    "rekonise.com", "sub1s.com", "sub4unlock.com", "sub4unlock.io",
+    "yosh.gg", "spaste.com", "cuty.io", "clk.sh", "clk.wiki", "clickscoin.com"
+)
+
+def extract_url(text):
+    for part in text.split():
+        if part.startswith("http://") or part.startswith("https://"):
+            return part.strip()
+    return None
+
+def is_shortener(url):
+    url_lower = url.lower()
+    return any(domain in url_lower for domain in SHORTENERS)
+
+async def bypass_url(url):
+    headers = {"Content-Type": "application/json"}
+    payload = {"url": url}
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.post(BYPASS_API, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as r:
+                text = await r.text()
+                try:
+                    data = await r.json()
+                except Exception:
+                    return None, text
+                if isinstance(data, dict):
+                    if data.get("status") == "success" or data.get("success") is True:
+                        result = data.get("result") or data.get("destination") or data.get("url")
+                        return result, None
+                    err = data.get("message") or data.get("error") or text
+                    return None, err
+                return None, text
+    except Exception as e:
+        return None, str(e)
 
 async def ask_ai(prompt: str, is_update: bool = False) -> str:
     headers = {
@@ -98,6 +144,17 @@ async def on_message(message: discord.Message):
     if message.channel.id == COMMUNITY_CHANNEL_ID:
         if message.content.startswith("/") or message.content.startswith("!"):
             return
+
+        url = extract_url(message.content)
+        if url and is_shortener(url):
+            async with message.channel.typing():
+                result, err = await bypass_url(url)
+                if result:
+                    await message.reply(f"🔓 **Link bypassado:**\n{result}")
+                else:
+                    await message.reply(f"❌ Não consegui bypassar esse link.\nMotivo: `{err}`\nDica: alguns links só funcionam se você colar no site manualmente.")
+            return
+
         async with message.channel.typing():
             resp = await ask_ai(message.content)
             for i in range(0, len(resp), 1900):
