@@ -10,7 +10,7 @@ from flask import Flask
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GROQ_KEY      = os.getenv("GROQ_KEY")
 GROQ_URL      = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL    = "llama-3.3-70b-versatile"
+GROQ_MODEL    = "openai/gpt-oss-120b"
 
 CONFIG_FILE    = "config.json"
 
